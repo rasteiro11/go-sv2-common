@@ -1,0 +1,28 @@
+# Python Stratum V2 Server Image
+# 1. Build Rust libsv2
+# 2. Install Python dependencies & package
+# 3. Run server_example.py
+
+ARG RUST_VERSION=1.82
+FROM rust:${RUST_VERSION} as builder
+WORKDIR /app
+COPY Cargo.toml Cargo.lock* .
+COPY src src
+COPY uniffi-bindgen.rs uniffi-bindgen.rs
+# Copy python package source for uniffi scaffolding reference
+COPY python python
+RUN cargo build --release
+
+FROM python:3.11-slim
+WORKDIR /app
+# Runtime deps
+RUN apt-get update && apt-get install -y --no-install-recommends libssl-dev ca-certificates && rm -rf /var/lib/apt/lists/*
+# Copy built library & python sources
+COPY --from=builder /app/target/release/libsv2.so /usr/lib/
+COPY python python
+# Install requirements and editable package
+RUN pip install --no-cache-dir -r python/requirements.txt && pip install -e python/
+EXPOSE 34254
+ENV PYTHONUNBUFFERED=1
+ENV LD_LIBRARY_PATH=/usr/lib
+CMD ["python", "python/examples/server_example.py"]

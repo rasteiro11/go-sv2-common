@@ -1,0 +1,19 @@
+# Python Stratum V2 Client Image
+ARG RUST_VERSION=1.82
+FROM rust:${RUST_VERSION} as builder
+WORKDIR /app
+COPY Cargo.toml Cargo.lock* .
+COPY src src
+COPY uniffi-bindgen.rs uniffi-bindgen.rs
+COPY python python
+RUN cargo build --release
+
+FROM python:3.11-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends libssl-dev ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /app/target/release/libsv2.so /usr/lib/
+COPY python python
+RUN pip install --no-cache-dir -r python/requirements.txt && pip install -e python/
+ENV PYTHONUNBUFFERED=1
+ENV LD_LIBRARY_PATH=/usr/lib
+CMD ["python", "python/examples/client_example.py"]
