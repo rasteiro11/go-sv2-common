@@ -1,4 +1,4 @@
-module sv2local
+module github.com/rasteiro11/go-sv2-common
 
 go 1.22
 

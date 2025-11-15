@@ -6,8 +6,9 @@ import (
 	"fmt"
 	"math/big"
 	"net"
-	"sv2local/sv2"
 	"time"
+
+	"github.com/rasteiro11/go-sv2-common/sv2"
 )
 
 // Base58 alphabet (Bitcoin style, no 0,O,l,I)

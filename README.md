@@ -86,16 +86,6 @@ To support more message types:
 3. Update Go wrapper `go/sv2/ffi.go` to surface the new functions as Go types and methods.
 4. Rebuild `libsv2.so` and rerun the Go code.
 
-## Renaming the module to `go-sv2-common`
-The Go module name is currently `sv2local` (see `go/go.mod`). If you want to publish this as `go-sv2-common`:
-- Decide on a canonical import path (e.g., `github.com/yourorg/go-sv2-common`).
-- Edit `go/go.mod`:
-  ```
-  module github.com/yourorg/go-sv2-common
-  ```
-- Update imports in your Go apps accordingly (the internal wrapper uses relative imports `sv2local/sv2`; update to `github.com/yourorg/go-sv2-common/sv2`).
-- Rebuild and run.
-
 ## Known Limitations
 - Only a subset of Sv2 messages is wired through the FFI (SetupConnection + success/error). Add more as needed.
 - Only the initiator side of the Noise_NX handshake is wrapped in Go; the Python example implements the responder.
