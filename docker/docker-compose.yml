@@ -19,11 +19,10 @@ services:
       args:
         - RUST_VERSION=1.82
     container_name: sv2-client-python
-    depends_on:
-      - sv2-server
     environment:
       - LD_LIBRARY_PATH=/usr/lib
-    network_mode: host
+      - SV2_HOST=sv2-server
+      - SV2_PORT=34254
 
   sv2-client-go:
     build:
@@ -32,11 +31,22 @@ services:
       args:
         - RUST_VERSION=1.82
     container_name: sv2-client-go
-    depends_on:
-      - sv2-server
     environment:
       - LD_LIBRARY_PATH=/usr/lib
-    network_mode: host
+      - SV2_HOST=sv2-server
+      - SV2_PORT=34254
+
+  sv2-server-go:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.go-server
+      args:
+        - RUST_VERSION=1.82
+    container_name: sv2-server-go
+    ports:
+      - "34254:34254"
+    environment:
+      - LD_LIBRARY_PATH=/usr/lib
 
 networks:
   default:

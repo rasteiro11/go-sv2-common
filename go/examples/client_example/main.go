@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"net"
+	"os"
 	"time"
 
 	"github.com/rasteiro11/go-sv2-common/sv2"
@@ -229,7 +230,18 @@ func main() {
 	fmt.Println("==============================")
 	fmt.Println("     Stratum V2 Go Client")
 	fmt.Println("==============================")
-	if err := runClient("127.0.0.1", 34254); err != nil {
+	host := os.Getenv("SV2_HOST")
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	port := 34254
+	if p := os.Getenv("SV2_PORT"); p != "" {
+		var v int
+		if _, err := fmt.Sscanf(p, "%d", &v); err == nil {
+			port = v
+		}
+	}
+	if err := runClient(host, port); err != nil {
 		fmt.Printf("✗ Client failed: %v\n", err)
 	}
 }

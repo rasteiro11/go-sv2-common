@@ -6,7 +6,7 @@ use std::{os::raw::c_int, sync::Arc, ptr};
 
 use crate::{
     codec::{error::Sv2CodecError, state::Sv2CodecState, decoder::Sv2Decoder, encoder::Sv2Encoder},
-    messages::{Sv2Message, common::{SetupConnection, SetupConnectionSuccess}},
+    messages::{Sv2Message, common::{SetupConnection, SetupConnectionSuccess, SetupConnectionError}},
 };
 
 // Simple error codes (expand as needed)
@@ -64,6 +64,25 @@ pub extern "C" fn sv2_new_initiator(authority_ptr: *const u8, len: usize, out_st
 }
 
 #[no_mangle]
+pub extern "C" fn sv2_new_responder(
+    authority_pub_ptr: *const u8,
+    authority_pub_len: usize,
+    authority_priv_ptr: *const u8,
+    authority_priv_len: usize,
+    cert_validity_secs: u64,
+    out_state: *mut *mut Sv2CodecState,
+) -> c_int {
+    if authority_pub_ptr.is_null() || authority_priv_ptr.is_null() { return ERR_MESSAGE; }
+    if authority_pub_len != 32 || authority_priv_len != 32 { return ERR_MESSAGE; }
+    let pub_key = unsafe { std::slice::from_raw_parts(authority_pub_ptr, authority_pub_len).to_vec() };
+    let priv_key = unsafe { std::slice::from_raw_parts(authority_priv_ptr, authority_priv_len).to_vec() };
+    match Sv2CodecState::new_responder(pub_key, priv_key, cert_validity_secs) {
+        Ok(state) => { unsafe { *out_state = Box::into_raw(Box::new(state)); }; ERR_OK },
+        Err(_) => ERR_CODEC,
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn sv2_codec_state_free(state: *mut Sv2CodecState) {
     if state.is_null() { return; }
     unsafe { drop(Box::from_raw(state)); }
@@ -79,6 +98,17 @@ pub extern "C" fn sv2_step_0(state: *mut Sv2CodecState, out_buf: *mut Sv2Buffer)
     if state.is_null() { return ERR_GENERIC; }
     let s = unsafe { &*state };
     match s.step_0() {
+        Ok(bytes) => unsafe { *out_buf = alloc_buffer(bytes); ERR_OK },
+        Err(_) => ERR_CODEC,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn sv2_step_1(state: *mut Sv2CodecState, initiator_ptr: *const u8, len: usize, out_buf: *mut Sv2Buffer) -> c_int {
+    if state.is_null() || initiator_ptr.is_null() { return ERR_GENERIC; }
+    let s = unsafe { &*state };
+    let frame = unsafe { std::slice::from_raw_parts(initiator_ptr, len).to_vec() };
+    match s.step_1(frame) {
         Ok(bytes) => unsafe { *out_buf = alloc_buffer(bytes); ERR_OK },
         Err(_) => ERR_CODEC,
     }
@@ -183,8 +213,8 @@ pub extern "C" fn sv2_encode(
             firmware: sc.firmware.clone(),
             device_id: sc.device_id.clone(),
         }),
-        Sv2Message::SetupConnectionSuccess(s) => Sv2Message::SetupConnectionSuccess(crate::messages::common::SetupConnectionSuccess { used_version: s.used_version, flags: s.flags }),
-        Sv2Message::SetupConnectionError(e) => Sv2Message::SetupConnectionError(crate::messages::common::SetupConnectionError { flags: e.flags, error_code: e.error_code.clone() }),
+        Sv2Message::SetupConnectionSuccess(s) => Sv2Message::SetupConnectionSuccess(SetupConnectionSuccess { used_version: s.used_version, flags: s.flags }),
+        Sv2Message::SetupConnectionError(e) => Sv2Message::SetupConnectionError(SetupConnectionError { flags: e.flags, error_code: e.error_code.clone() }),
         _ => return ERR_MESSAGE,
     };
     let state_arc = unsafe { Arc::from_raw(state) }; // temporarily build Arc
@@ -248,6 +278,37 @@ pub extern "C" fn sv2_get_setup_connection_success(msg: *const Sv2Message, out_f
     match m {
         Sv2Message::SetupConnectionSuccess(s) => {
             unsafe { *out_fields = SetupConnectionSuccessFields { used_version: s.used_version, flags: s.flags }; }
+            ERR_OK
+        }
+        _ => ERR_MESSAGE,
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn sv2_setup_connection_success_new(used_version: u16, flags: u32, out_message: *mut *mut Sv2Message) -> c_int {
+    let s = SetupConnectionSuccess { used_version, flags };
+    let msg = Sv2Message::SetupConnectionSuccess(s);
+    unsafe { *out_message = Box::into_raw(Box::new(msg)); }
+    ERR_OK
+}
+
+#[no_mangle]
+pub extern "C" fn sv2_is_setup_connection(msg: *const Sv2Message) -> c_int {
+    if msg.is_null() { return 0; }
+    let m = unsafe { &*msg };
+    match m { Sv2Message::SetupConnection(_) => 1, _ => 0 }
+}
+
+#[repr(C)]
+pub struct SetupConnectionFields { pub protocol: u8, pub min_version: u16, pub max_version: u16, pub flags: u32 }
+
+#[no_mangle]
+pub extern "C" fn sv2_get_setup_connection(msg: *const Sv2Message, out_fields: *mut SetupConnectionFields) -> c_int {
+    if msg.is_null() || out_fields.is_null() { return ERR_GENERIC; }
+    let m = unsafe { &*msg };
+    match m {
+        Sv2Message::SetupConnection(sc) => {
+            unsafe { *out_fields = SetupConnectionFields { protocol: sc.protocol, min_version: sc.min_version, max_version: sc.max_version, flags: sc.flags }; }
             ERR_OK
         }
         _ => ERR_MESSAGE,

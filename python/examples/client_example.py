@@ -14,6 +14,7 @@ Run the server_example.py first, then run this client to see the complete flow.
 import socket
 import base58
 import time
+import os
 from typing import Optional
 
 from sv2 import (
@@ -324,12 +325,18 @@ def main():
     print()
     print("Prerequisites:")
     print("- Run the server_example.py first")
-    print("- Server should be listening on 127.0.0.1:34254")
+    print("- Server should be listening on host:port (defaults below)")
     print()
     
     try:
+        host = os.getenv("SV2_HOST", "127.0.0.1")
+        try:
+            port = int(os.getenv("SV2_PORT", "34254"))
+        except ValueError:
+            port = 34254
+
         # Test the connection
-        success = connect_to_server()
+        success = connect_to_server(host, port)
         
         if success:
             print("\n🎉 Client example completed successfully!")

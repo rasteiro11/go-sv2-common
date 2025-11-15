@@ -11,8 +11,10 @@ typedef struct { unsigned char* data; size_t len; } Sv2Buffer;
 int sv2_new_initiator(const unsigned char* key, size_t len, void** out_state);
 void sv2_codec_state_free(void* state);
 int sv2_step_0(void* state, Sv2Buffer* out_buf);
+int sv2_step_1(void* state, const unsigned char* data, size_t len, Sv2Buffer* out_buf);
 int sv2_step_2(void* state, const unsigned char* data, size_t len);
 int sv2_handshake_complete(void* state, int* out_complete);
+int sv2_new_responder(const unsigned char* pubk, size_t publen, const unsigned char* privk, size_t privlen, size_t cert_secs, void** out_state);
 int sv2_encoder_new(void** out_encoder);
 void sv2_encoder_free(void* enc);
 int sv2_decoder_new(void** out_decoder);
@@ -33,6 +35,10 @@ int sv2_is_setup_connection_success(const void* msg);
 typedef struct { unsigned short used_version; unsigned int flags; } SetupConnectionSuccessFields;
 int sv2_get_setup_connection_success(const void* msg, SetupConnectionSuccessFields* out_fields);
 int sv2_codec_error_is_missing_bytes(int code);
+int sv2_setup_connection_success_new(unsigned short used_version, unsigned int flags, void** out_message);
+int sv2_is_setup_connection(const void* msg);
+typedef struct { unsigned char protocol; unsigned short min_version; unsigned short max_version; unsigned int flags; } SetupConnectionFields;
+int sv2_get_setup_connection(const void* msg, SetupConnectionFields* out_fields);
 */
 import "C"
 import (
@@ -53,6 +59,12 @@ type Message struct{ ptr unsafe.Pointer }
 type SetupConnectionSuccess struct {
 	UsedVersion uint16
 	Flags       uint32
+}
+type SetupConnection struct {
+	Protocol   uint8
+	MinVersion uint16
+	MaxVersion uint16
+	Flags      uint32
 }
 
 // Allocate initiator
@@ -103,6 +115,31 @@ func (s *CodecState) HandshakeComplete() (bool, error) {
 		return false, ErrCodec
 	}
 	return out == 1, nil
+}
+
+// Responder API
+func NewResponder(authorityPub32, authorityPriv32 []byte, certValiditySecs uint64) (*CodecState, error) {
+	if len(authorityPub32) != 32 || len(authorityPriv32) != 32 {
+		return nil, ErrMessage
+	}
+	var out unsafe.Pointer
+	rc := C.sv2_new_responder((*C.uchar)(unsafe.Pointer(&authorityPub32[0])), C.size_t(len(authorityPub32)),
+		(*C.uchar)(unsafe.Pointer(&authorityPriv32[0])), C.size_t(len(authorityPriv32)),
+		C.size_t(certValiditySecs), (*unsafe.Pointer)(&out))
+	if rc != 0 {
+		return nil, ErrCodec
+	}
+	return &CodecState{ptr: out}, nil
+}
+
+func (s *CodecState) Step1(initiatorFrame []byte) ([]byte, error) {
+	var buf C.Sv2Buffer
+	rc := C.sv2_step_1(s.ptr, (*C.uchar)(unsafe.Pointer(&initiatorFrame[0])), C.size_t(len(initiatorFrame)), (*C.Sv2Buffer)(unsafe.Pointer(&buf)))
+	if rc != 0 {
+		return nil, ErrCodec
+	}
+	defer C.sv2_free_buffer(buf)
+	return C.GoBytes(unsafe.Pointer(buf.data), C.int(buf.len)), nil
 }
 
 func NewEncoder() (*Encoder, error) {
@@ -216,4 +253,29 @@ func (m *Message) GetSetupConnectionSuccess() (*SetupConnectionSuccess, error) {
 		return nil, ErrCodec
 	}
 	return &SetupConnectionSuccess{UsedVersion: uint16(fields.used_version), Flags: uint32(fields.flags)}, nil
+}
+
+func (m *Message) IsSetupConnection() bool {
+	if m.ptr == nil {
+		return false
+	}
+	return C.sv2_is_setup_connection(m.ptr) == 1
+}
+
+func (m *Message) GetSetupConnection() (*SetupConnection, error) {
+	var f C.SetupConnectionFields
+	rc := C.sv2_get_setup_connection(m.ptr, &f)
+	if rc != 0 {
+		return nil, ErrMessage
+	}
+	return &SetupConnection{Protocol: uint8(f.protocol), MinVersion: uint16(f.min_version), MaxVersion: uint16(f.max_version), Flags: uint32(f.flags)}, nil
+}
+
+func NewSetupConnectionSuccess(usedVersion uint16, flags uint32) (*Message, error) {
+	var out unsafe.Pointer
+	rc := C.sv2_setup_connection_success_new(C.ushort(usedVersion), C.uint(flags), (*unsafe.Pointer)(&out))
+	if rc != 0 {
+		return nil, ErrMessage
+	}
+	return &Message{ptr: out}, nil
 }

@@ -1,0 +1,28 @@
+# Go Stratum V2 Server Image
+# Build libsv2 (Rust) then Go server binary linking dynamically.
+
+ARG RUST_VERSION=1.82
+FROM rust:${RUST_VERSION} as rust-builder
+WORKDIR /app
+COPY Cargo.toml Cargo.lock* .
+COPY src src
+COPY uniffi-bindgen.rs uniffi-bindgen.rs
+COPY go go
+RUN cargo build --release
+
+FROM golang:1.22 as go-builder
+WORKDIR /app
+COPY --from=rust-builder /app/target/release/libsv2.so /usr/lib/libsv2.so
+COPY go go
+ENV LD_LIBRARY_PATH=/usr/lib
+WORKDIR /app/go/examples/server_example
+RUN go build -o /app/sv2-go-server .
+
+FROM debian:stable-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && rm -rf /var/lib/apt/lists/*
+COPY --from=rust-builder /app/target/release/libsv2.so /usr/lib/libsv2.so
+COPY --from=go-builder /app/sv2-go-server /usr/local/bin/sv2-go-server
+ENV LD_LIBRARY_PATH=/usr/lib
+EXPOSE 34254
+CMD ["sv2-go-server"]
